@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Артефакты разработки
+*.log
+*.egg-info/
+dist/
+build/
