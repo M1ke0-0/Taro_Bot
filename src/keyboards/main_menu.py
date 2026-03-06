@@ -10,3 +10,11 @@ def get_main_menu() -> ReplyKeyboardMarkup:
         ],
         resize_keyboard=True,
     )
+
+def get_return_to_main_menu_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🔙 Возврат в меню")]
+        ],
+        resize_keyboard=True,
+    )

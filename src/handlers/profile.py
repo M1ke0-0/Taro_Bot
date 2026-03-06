@@ -1,10 +1,16 @@
+import html
+
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
+from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from src.db.tarot_card_dao import TarotCardDAO
 from src.db.user_dao import UserDAO
+from src.handlers.spread import SpreadStates
 from src.keyboards.main_menu import get_main_menu
 from src.keyboards.profile import get_profile_actions_keyboard
+from src.keyboards.spread import get_topic_keyboard
 
 router = Router(name="profile")
 
@@ -32,7 +38,7 @@ async def show_profile(message: Message, session_maker: async_sessionmaker) -> N
     avg_stress = (
         f"{user.avg_stress_index:.1f}" if user.avg_stress_index is not None else "—"
     )
-    dominant = user.dominant_area or "—"
+    dominant = html.escape(user.dominant_area) if user.dominant_area else "—"
 
     text = (
         f"👤 <b>Ваш профиль</b>\n\n"
@@ -48,13 +54,26 @@ async def show_profile(message: Message, session_maker: async_sessionmaker) -> N
 # ─────────────── Действия из профиля ───────────────
 
 @router.callback_query(F.data == "profile:new_spread")
-async def profile_new_spread(callback: CallbackQuery) -> None:
-    await callback.answer("🚧 Раздел в разработке", show_alert=True)
+async def profile_new_spread(callback: CallbackQuery, state: FSMContext, session_maker: async_sessionmaker) -> None:
+    async with session_maker() as session:
+        dao = TarotCardDAO(session)
+        card_count = await dao.count()
 
+    if card_count < 3:
+        await callback.answer(
+            "⚠️ В базе данных недостаточно карт Таро для расклада. Обратитесь к администратору.",
+            show_alert=True
+        )
+        return
 
-@router.callback_query(F.data == "profile:buy_pro")
-async def profile_buy_pro(callback: CallbackQuery) -> None:
-    await callback.answer("🚧 Раздел в разработке", show_alert=True)
+    await state.set_state(SpreadStates.choosing_topic)
+    await callback.message.answer(
+        "🔮 <b>На какую тему нужен расклад?</b>",
+        reply_markup=get_topic_keyboard(),
+    )
+    await callback.message.delete()
+    await callback.answer()
+
 
 
 @router.callback_query(F.data == "profile:back")

@@ -17,6 +17,11 @@ class Settings:
     DB_USER: str = os.getenv("DB_USER", "postgres")
     DB_PASSWORD: str = os.getenv("DB_PASSWORD", "")
 
+    ENCRYPTION_KEY: str = os.getenv("ENCRYPTION_KEY", "")
+
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+    OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
+
     APP_ENV: str = os.getenv("APP_ENV", "development")
 
     @property

@@ -9,6 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from src.config import settings
 from src.db.base import create_session_maker
 from src.handlers import setup_routers
+from src.middlewares.throttling import ThrottlingMiddleware
 
 
 async def main() -> None:
@@ -22,6 +23,7 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher(storage=MemoryStorage())
+    dp.message.middleware(ThrottlingMiddleware())
 
     session_maker = await create_session_maker()
     dp["session_maker"] = session_maker
