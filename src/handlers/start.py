@@ -28,12 +28,14 @@ class Registration(StatesGroup):
 async def cmd_start(message: Message, state: FSMContext, session_maker: async_sessionmaker) -> None:
     async with session_maker() as session:
         dao = UserDAO(session)
-        already_registered = await dao.exists(message.from_user.id)
+        user = await dao.get_by_telegram_id(message.from_user.id)
+        already_registered = user is not None
 
     if already_registered:
+        is_pro = user.subscription_status == "pro"
         await message.answer(
             "С возвращением! Выберите действие:",
-            reply_markup=get_main_menu(),
+            reply_markup=get_main_menu(is_pro=is_pro),
         )
         return
 
@@ -98,5 +100,5 @@ async def process_name(message: Message, state: FSMContext, session_maker: async
         f"Приятно познакомиться, {html.escape(name)}! 😊\n\n"
         "Я бот психологического Таро. Я помогаю анализировать состояние "
         "и находить внутренние ресурсы через архетипы карт.",
-        reply_markup=get_main_menu(),
+        reply_markup=get_main_menu(is_pro=False),
     )

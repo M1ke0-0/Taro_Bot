@@ -1,13 +1,17 @@
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 
-def get_main_menu() -> ReplyKeyboardMarkup:
+def get_main_menu(is_pro: bool = False) -> ReplyKeyboardMarkup:
+    keyboard = [
+        [KeyboardButton(text="🃏 Сделать расклад")],
+        [KeyboardButton(text="👤 Мой профиль"), KeyboardButton(text="⭐ PRO")],
+        [KeyboardButton(text="📖 О методе")],
+    ]
+    if is_pro:
+        keyboard.insert(1, [KeyboardButton(text="📊 Недельный отчет"), KeyboardButton(text="⚙️ Настройки")])
+
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🃏 Сделать расклад")],
-            [KeyboardButton(text="👤 Мой профиль"), KeyboardButton(text="⭐ PRO")],
-            [KeyboardButton(text="📖 О методе")],
-        ],
+        keyboard=keyboard,
         resize_keyboard=True,
     )
 

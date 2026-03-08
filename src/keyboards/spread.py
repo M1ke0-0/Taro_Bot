@@ -17,3 +17,15 @@ def get_topic_keyboard() -> InlineKeyboardMarkup:
             ],
         ]
     )
+
+def get_post_spread_keyboard(is_pro: bool, price: str = "99") -> InlineKeyboardMarkup | None:
+    if is_pro:
+        # Для PRO подписки дополнительных кнопок покупки нет
+        return None
+    else:
+        # Для Free кнопки "Разобрать глубже"
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=f"🔍 Разобрать глубже (разово - {price} руб)", callback_data="spread:deep_dive_pay")]
+            ]
+        )

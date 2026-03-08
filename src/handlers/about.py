@@ -2,6 +2,8 @@ from aiogram import F, Router
 from aiogram.types import Message
 
 from src.keyboards.main_menu import get_main_menu, get_return_to_main_menu_keyboard
+from sqlalchemy.ext.asyncio import async_sessionmaker
+from src.db.user_dao import UserDAO
 
 router = Router(name="about")
 
@@ -61,5 +63,9 @@ async def show_about_method(message: Message) -> None:
     await message.answer(ABOUT_TEXT, reply_markup=get_return_to_main_menu_keyboard())
 
 @router.message(F.text == "🔙 Возврат в меню")
-async def back_to_main_menu(message: Message) -> None:
-    await message.answer("Выберите действие:", reply_markup=get_main_menu())
+async def back_to_main_menu(message: Message, session_maker: async_sessionmaker) -> None:
+    async with session_maker() as session:
+        user = await UserDAO(session).get_by_telegram_id(message.from_user.id)
+        is_pro = user and user.subscription_status == "pro"
+
+    await message.answer("Выберите действие:", reply_markup=get_main_menu(is_pro=is_pro))

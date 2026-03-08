@@ -21,7 +21,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from src.db.tarot_card_dao import TarotCardDAO
 from src.db.user_dao import UserDAO
-from src.keyboards.spread import get_topic_keyboard
+from src.db.spread_history_dao import SpreadHistoryDAO
+from src.keyboards.spread import get_topic_keyboard, get_post_spread_keyboard
 from src.keyboards.main_menu import get_main_menu
 from src.services.openrouter import get_spread_interpretation
 
@@ -57,6 +58,36 @@ async def cmd_spread(message: Message, state: FSMContext, session_maker: async_s
     async with session_maker() as session:
         dao = TarotCardDAO(session)
         card_count = await dao.count()
+        
+        user_dao = UserDAO(session)
+        user = await user_dao.get_by_telegram_id(message.from_user.id)
+        
+        if user and user.subscription_status != "pro":
+            history_dao = SpreadHistoryDAO(session)
+            today_count = await history_dao.get_today_spread_count(user.id)
+            
+            setting_dao = SettingDAO(session)
+            free_limit_str = await setting_dao.get_setting("free_spread_limit", "1")
+            try:
+                free_limit = int(free_limit_str)
+            except ValueError:
+                free_limit = 1
+                
+            if today_count >= free_limit:
+                from datetime import datetime, timedelta
+                now = datetime.now()
+                next_midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                time_left = next_midnight - now
+                hours, remainder = divmod(int(time_left.total_seconds()), 3600)
+                minutes, _ = divmod(remainder, 60)
+                
+                await message.answer(
+                    f"⚠️ <b>Лимит исчерпан</b>\n\n"
+                    f"На сегодня лимит раскладов исчерпан, следующий расклад будет доступен через {hours} ч. {minutes} мин.\n"
+                    f"Для снятия ограничений приобретите подписку ⭐ PRO.",
+                    reply_markup=get_main_menu(is_pro=False)
+                )
+                return
 
     if card_count < 3:
         await message.answer(
@@ -83,21 +114,24 @@ async def process_topic(
     topic = callback.data.split(":")[1]  # love | career | money | psy | question
     await callback.answer()
 
+    await state.set_state(SpreadStates.typing_question)
+    
     if topic == "question":
-        await state.set_state(SpreadStates.typing_question)
+        # Свой вопрос (без конкретной темы)
+        await state.update_data(topic=topic)
         await callback.message.edit_text(
             "❓ <b>Введите ваш вопрос:</b>\n\n"
             "<i>Чем конкретнее вопрос — тем точнее психологический анализ.</i>"
         )
-        return
-
-    # Сохраняем тему и запускаем расклад
-    await state.update_data(topic=topic, question=None)
-    await callback.message.edit_text(
-        f"Тема: <b>{TOPIC_NAMES.get(topic, topic)}</b>"
-    )
-    await _run_spread(callback.message, state, session_maker)
-
+    else:
+        # Выбрана конкретная тема
+        await state.update_data(topic=topic)
+        topic_name = TOPIC_NAMES.get(topic, topic)
+        await callback.message.edit_text(
+            f"Тема: <b>{topic_name}</b>\n\n"
+            f"❓ <b>Напишите ваш конкретный вопрос или ситуацию:</b>\n\n"
+            f"<i>(Либо отправьте минус «-», чтобы получить общий расклад на эту тему)</i>"
+        )
 
 # ─────────────── Ввод вопроса ───────────────
 
@@ -107,30 +141,54 @@ async def process_question(
     state: FSMContext,
     session_maker: async_sessionmaker,
 ) -> None:
+    # Защита от race condition: сразу ставим статус
+    await state.set_state(SpreadStates.generating_spread)
+    
     question = message.text.strip()
-    if len(question) < 5:
+    data = await state.get_data()
+    topic = data.get("topic")
+
+    # Если пользователь ввел короткий текст, но это не минус
+    if len(question) < 5 and question != "-":
+        await state.set_state(SpreadStates.typing_question)
         await message.answer("⚠️ Вопрос слишком короткий. Попробуйте ещё раз:")
         return
+        
+    # Если вопрос слишком длинный
+    if len(question) > 500:
+        await state.set_state(SpreadStates.typing_question)
+        await message.answer("⚠️ Вопрос слишком длинный. Пожалуйста, сформулируйте его короче (до 500 символов).")
+        return
 
-    await state.update_data(topic="question", question=question)
-    await _run_spread(message, state, session_maker)
+    # Если отправлен минус, значит вопроса нет
+    if question == "-":
+        question = None
+
+    await state.update_data(question=question)
+    
+    # Отправляем сообщение о начале, если тема не была "question" (там нет edit_text сверху)
+    if topic == "question":
+        await message.answer("🔮 Начинаем расклад...")
+    else:
+        # Чтобы убрать клавиатуру или дать фидбек
+        await message.answer(f"🔮 Принято. Делаю расклад...")
+
+    await _run_spread(message, message.from_user.id, state, session_maker)
 
 
 # ─────────────── Основная логика расклада ───────────────
 
 async def _run_spread(
     message: Message,
+    user_id: int,
     state: FSMContext,
     session_maker: async_sessionmaker,
 ) -> None:
     data = await state.get_data()
     topic: str = data["topic"]
     question: str | None = data.get("question")
-    
-    # Устанавливаем блокирующее состояние СРАЗУ ЖЕ, чтобы игнорировать двойные клики
-    await state.set_state(SpreadStates.generating_spread)
 
-    telegram_id = message.from_user.id
+    telegram_id = user_id
 
     # Запускаем получение пользователя и выбор карт одновременно
     # Важно: для параллельных запросов нужны РАЗНЫЕ сессии
@@ -159,6 +217,11 @@ async def _run_spread(
 
     is_pro = user and user.subscription_status == "pro"
 
+    # Fetch single spread price
+    async with session_maker() as session:
+        setting_dao = SettingDAO(session)
+        single_price = await setting_dao.get_setting("single_spread_price", "99")
+
     # Отправляем статус — тянем карты
     status_msg = await message.answer("⏳ <b>Карты тянутся...</b>")
 
@@ -173,8 +236,10 @@ async def _run_spread(
         )
     )
 
-    # Отправляем фото почти мгновенно без жестких задержек
+    # Отправляем фото с задержкой 2 сек между картами для эффекта присутствия
     for i, card in enumerate(cards):
+        if i > 0:
+            await asyncio.sleep(2)
 
         caption = f"🃏 <b>{card.name}</b>"
 
@@ -219,8 +284,35 @@ async def _run_spread(
     except Exception:
         pass
     
-    # Отправляем ответ без ParseMode (чтобы избежать ошибки при символах < >)
-    await message.answer(interpretation, parse_mode=None)
+    # Разбиваем длинный текст на части (лимит Telegram 4096 символов)
+    max_length = 4000
+    paragraphs = interpretation.split('\n')
+    current_chunk = ""
+    chunks = []
+    
+    for paragraph in paragraphs:
+        if len(current_chunk) + len(paragraph) + 1 > max_length:
+            chunks.append(current_chunk)
+            current_chunk = paragraph
+        else:
+            if current_chunk:
+                current_chunk += "\n" + paragraph
+            else:
+                current_chunk = paragraph
+    
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    for i, chunk in enumerate(chunks):
+        # Клавиатуру добавляем только к последнему сообщению
+        reply_markup = get_post_spread_keyboard(is_pro=is_pro, price=single_price) if i == len(chunks) - 1 else None
+        
+        # Отправляем ответ без ParseMode (чтобы избежать ошибки при HTML тегах)
+        await message.answer(
+            chunk, 
+            parse_mode=None, 
+            reply_markup=reply_markup
+        )
     
     # Снимаем блокировку FSM
     await state.clear()
@@ -250,13 +342,39 @@ async def _run_spread(
 
     async with session_maker() as session:
         user_dao = UserDAO(session)
+        user = await user_dao.get_by_telegram_id(telegram_id)
+        
         await user_dao.update_spread_stats(
             telegram_id=telegram_id,
             stress_index=round(stress_index, 2),
             dominant_area=area_labels.get(dominant_area, dominant_area),
         )
+        
+        if user:
+            history_dao = SpreadHistoryDAO(session)
+            await history_dao.add_history(
+                user_id=user.id,
+                topic=area_labels.get(topic, topic),
+                cards=", ".join([c.name for c in cards]),
+                stress_index=round(stress_index, 2)
+            )
+            await session.commit()
 
     logger.info(
         "Spread done for user %s | cards: %s | stress: %.2f | area: %s",
         telegram_id, card_names, stress_index, dominant_area,
     )
+
+# ─────────────── Дополнительные действия после расклада ───────────────
+
+@router.callback_query(F.data == "spread:deep_dive")
+async def process_deep_dive(callback: CallbackQuery) -> None:
+    await callback.answer("🔄 Запускаю глубокий разбор...", show_alert=False)
+    await callback.message.answer("Здесь будет функционал глубокого разбора для PRO 🔮 (в разработке)")
+
+@router.callback_query(F.data == "spread:deep_dive_pay")
+async def process_deep_dive_pay(callback: CallbackQuery, session_maker: async_sessionmaker) -> None:
+    async with session_maker() as session:
+        setting_dao = SettingDAO(session)
+        price = await setting_dao.get_setting("single_spread_price", "99")
+    await callback.answer(f"🚧 Оплатите {price} руб для разового глубокого разбора. (Интеграция оплаты в разработке).", show_alert=True)

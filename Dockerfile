@@ -16,10 +16,15 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 
 COPY src/ ./src/
+COPY scripts/ ./scripts/
+COPY Tarot_cards/ ./Tarot_cards/
 COPY .env .env
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
+
+RUN useradd -m -r botuser && chown -R botuser:botuser /app
+USER botuser
 
 CMD ["python", "-m", "src.main"]

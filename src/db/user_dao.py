@@ -64,3 +64,34 @@ class UserDAO:
 
         await self._session.commit()
 
+    async def update_last_report_date(self, telegram_id: int) -> None:
+        """Обновляет дату последнего просмотра недельного отчета."""
+        from datetime import datetime
+        result = await self._session.execute(
+            select(User).where(User.telegram_id == telegram_id)
+        )
+        user = result.scalar_one_or_none()
+        if user:
+            user.last_report_date = datetime.now()
+            await self._session.commit()
+
+    async def save_weekly_report_cache(self, telegram_id: int, report_text: str) -> None:
+        """Сохраняет кеш недельного отчета и обновляет дату."""
+        import logging
+        logger = logging.getLogger(__name__)
+        from datetime import datetime, timezone
+        
+        logger.info(f"Looking for user {telegram_id} to save cache.")
+        result = await self._session.execute(
+            select(User).where(User.telegram_id == telegram_id)
+        )
+        user = result.scalar_one_or_none()
+        if user:
+            logger.info("User found, updating last_report_date and cached_weekly_report.")
+            user.last_report_date = datetime.now(timezone.utc)
+            user.cached_weekly_report = report_text
+            await self._session.commit()
+            logger.info("Commit successful.")
+        else:
+            logger.error(f"User {telegram_id} not found in save_weekly_report_cache!")
+
