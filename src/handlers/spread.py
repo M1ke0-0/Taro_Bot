@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from src.db.tarot_card_dao import TarotCardDAO
 from src.db.user_dao import UserDAO
 from src.db.spread_history_dao import SpreadHistoryDAO
+from src.db.setting_dao import SettingDAO
 from src.keyboards.spread import get_topic_keyboard, get_post_spread_keyboard
 from src.keyboards.main_menu import get_main_menu
 from src.services.openrouter import get_spread_interpretation

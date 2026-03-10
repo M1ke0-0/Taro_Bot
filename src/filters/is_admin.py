@@ -7,8 +7,8 @@ from src.config import settings
 class IsAdmin(BaseFilter):
     """
     Фильтр для проверки, является ли пользователь администратором.
-    Сравнивает ID пользователя с ADMIN_ID из настроек.
+    Сравнивает ID пользователя с ADMIN_IDS из настроек.
     """
     
     async def __call__(self, message: Message) -> bool:
-        return message.from_user is not None and message.from_user.id == settings.ADMIN_ID
+        return message.from_user is not None and message.from_user.id in settings.ADMIN_IDS

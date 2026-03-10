@@ -9,8 +9,10 @@ load_dotenv()
 @dataclass
 class Settings:
     BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
-    ADMIN_ID: int = int(os.getenv("ADMIN_ID") or "0")
-
+    @property
+    def ADMIN_IDS(self) -> list[int]:
+        ids_str = os.getenv("ADMIN_IDS", os.getenv("ADMIN_ID", "0"))
+        return [int(i.strip()) for i in ids_str.split(",") if i.strip()]
     DB_HOST: str = os.getenv("DB_HOST", "localhost")
     DB_PORT: int = int(os.getenv("DB_PORT", "5432"))
     DB_NAME: str = os.getenv("DB_NAME", "tarot_bot")

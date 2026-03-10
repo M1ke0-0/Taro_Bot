@@ -5,10 +5,10 @@ def get_main_menu(is_pro: bool = False) -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="🃏 Сделать расклад")],
         [KeyboardButton(text="👤 Мой профиль"), KeyboardButton(text="⭐ PRO")],
-        [KeyboardButton(text="📖 О методе")],
+        [KeyboardButton(text="📖 О методе"), KeyboardButton(text="💡 Предложить улучшение")],
     ]
     if is_pro:
-        keyboard.insert(1, [KeyboardButton(text="📊 Недельный отчет"), KeyboardButton(text="⚙️ Настройки")])
+        keyboard.insert(1, [KeyboardButton(text="📊 Недельный отчет")])
 
     return ReplyKeyboardMarkup(
         keyboard=keyboard,

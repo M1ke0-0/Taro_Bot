@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, Float, Integer, Text, func, ForeignKey
+from sqlalchemy import BigInteger, DateTime, Float, Integer, Text, func, ForeignKey, Boolean
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from src.db.encrypted_type import EncryptedString
@@ -99,3 +99,17 @@ class Payment(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
+
+class Suggestion(Base):
+    """
+    Предложения по улучшению от пользователей.
+    """
+    __tablename__ = "suggestions"
+    
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

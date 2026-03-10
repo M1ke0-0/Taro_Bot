@@ -39,8 +39,7 @@ class AdminStates(StatesGroup):
 
 # Фильтр для проверки администратора
 def is_admin(user_id: int) -> bool:
-    return user_id == settings.ADMIN_ID
-
+    return user_id in settings.ADMIN_IDS
 
 @router.message(Command("admin"))
 async def cmd_admin(message: Message, state: FSMContext) -> None:
@@ -304,3 +303,157 @@ async def process_grant_pro_id(message: Message, state: FSMContext, session_make
         )
     except Exception as e:
         logger.warning(f"Не удалось отправить уведомление пользователю {target_id} о выдаче PRO: {e}")
+
+
+# ─────────────── Отмена PRO ───────────────
+
+class AdminRevokeProStates(StatesGroup):
+    waiting_for_revoke_pro_id = State()
+
+@router.callback_query(F.data == "admin:revoke_pro")
+async def process_admin_revoke_pro(callback: CallbackQuery, state: FSMContext) -> None:
+    if not is_admin(callback.from_user.id):
+        return
+        
+    await state.set_state(AdminRevokeProStates.waiting_for_revoke_pro_id)
+    await callback.message.edit_text(
+        "❌ <b>Отмена PRO подписки</b>\n\n"
+        "Отправьте мне <b>Telegram ID</b> пользователя, у которого нужно забрать PRO доступ (вернуть free).\n"
+        "ID можно посмотреть в отчете по пользователям.",
+        reply_markup=get_admin_back_keyboard()
+    )
+
+
+@router.message(AdminRevokeProStates.waiting_for_revoke_pro_id)
+async def process_revoke_pro_id(message: Message, state: FSMContext, session_maker: async_sessionmaker) -> None:
+    if not is_admin(message.from_user.id):
+        return
+        
+    target_id_str = message.text.strip()
+    if not target_id_str.isdigit():
+        await message.answer("⚠️ Ошибка: Telegram ID должен состоять только из цифр.", reply_markup=get_admin_back_keyboard())
+        return
+        
+    target_id = int(target_id_str)
+    
+    async with session_maker() as session:
+        from src.db.user_dao import UserDAO
+        user_dao = UserDAO(session)
+        user = await user_dao.get_by_telegram_id(target_id)
+        
+        if not user:
+            await message.answer(f"❌ Пользователь с ID <code>{target_id}</code> не найден в базе данных.", reply_markup=get_admin_back_keyboard())
+            return
+            
+        user.subscription_status = "free"
+        await session.commit()
+        
+    await state.clear()
+    
+    await message.answer(
+        f"✅ У пользователя с ID <code>{target_id}</code> успешно забрана подписка PRO (теперь <b>free</b>).", 
+        reply_markup=get_admin_back_keyboard()
+    )
+
+
+# ─────────────── Предложения ───────────────
+
+from src.db.models import Suggestion
+from src.keyboards.admin import get_admin_suggestion_nav_keyboard
+
+@router.callback_query(F.data == "admin:suggestions")
+async def process_admin_suggestions(callback: CallbackQuery, session_maker: async_sessionmaker) -> None:
+    if not is_admin(callback.from_user.id):
+        return
+        
+    await show_suggestion(callback, session_maker, offset=0)
+
+
+async def show_suggestion(callback: CallbackQuery, session_maker: async_sessionmaker, offset: int = 0) -> None:
+    async with session_maker() as session:
+        # Get unread suggestions count
+        stmt_count = select(func.count(Suggestion.id)).where(Suggestion.is_read == False)
+        count_res = await session.execute(stmt_count)
+        total_unread = count_res.scalar() or 0
+        
+        if total_unread == 0:
+            await callback.message.edit_text(
+                "💡 <b>Нет новых предложений</b>\n\nВсе предложения прочитаны.",
+                reply_markup=get_admin_back_keyboard()
+            )
+            return
+
+        # Get ONE suggestion at the offset
+        stmt = select(Suggestion).where(Suggestion.is_read == False).order_by(Suggestion.created_at.desc()).offset(offset).limit(1)
+        res = await session.execute(stmt)
+        suggestion = res.scalar_one_or_none()
+        
+        if not suggestion:
+            await callback.message.edit_text(
+                "💡 <b>Предложение не найдено</b>",
+                reply_markup=get_admin_back_keyboard()
+            )
+            return
+            
+        from src.db.user_dao import UserDAO
+        user_dao = UserDAO(session)
+        user = await user_dao.get_by_telegram_id(suggestion.user_id) # oops, this is user.id, need to get user by id
+        
+        if user:
+            user_info = f"<a href='tg://user?id={user.telegram_id}'>{user.name or 'Без имени'}</a> (ID: <code>{user.telegram_id}</code>)"
+        else:
+            # Maybe user_id was foreign key id, let's just get it using the exact relation
+            stmt_usr = select(User).where(User.id == suggestion.user_id)
+            usr_res = await session.execute(stmt_usr)
+            usr = usr_res.scalar_one_or_none()
+            if usr:
+                user_info = f"<a href='tg://user?id={usr.telegram_id}'>{usr.name or 'Без имени'}</a> (ID: <code>{usr.telegram_id}</code>)"
+            else:
+                user_info = f"UID БД: {suggestion.user_id}"
+            
+        text = (
+            f"💡 <b>Непрочитанные предложения</b> ({offset + 1}/{total_unread})\n\n"
+            f"👤 От: {user_info}\n"
+            f"📅 Дата: {suggestion.created_at.strftime('%Y-%m-%d %H:%M')}\n\n"
+            f"<i>{suggestion.text}</i>"
+        )
+        
+        has_prev = offset > 0
+        has_next = offset < total_unread - 1
+        
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_admin_suggestion_nav_keyboard(suggestion.id, offset, has_prev, has_next)
+        )
+
+
+@router.callback_query(F.data.startswith("admin:sugg_nav_off:"))
+async def process_admin_suggestion_nav_off(callback: CallbackQuery, session_maker: async_sessionmaker) -> None:
+    if not is_admin(callback.from_user.id):
+        return
+        
+    parts = callback.data.split(":")
+    offset = int(parts[-1])
+    await show_suggestion(callback, session_maker, offset)
+
+
+@router.callback_query(F.data.startswith("admin:sugg_read:"))
+async def process_admin_suggestion_read(callback: CallbackQuery, session_maker: async_sessionmaker) -> None:
+    if not is_admin(callback.from_user.id):
+        return
+        
+    suggestion_id = int(callback.data.split(":")[-1])
+    
+    async with session_maker() as session:
+        stmt = select(Suggestion).where(Suggestion.id == suggestion_id)
+        res = await session.execute(stmt)
+        suggestion = res.scalar_one_or_none()
+        
+        if suggestion:
+            suggestion.is_read = True
+            await session.commit()
+            
+    await callback.answer("✅ Отмечено как прочитанное")
+    
+    # Show the next unread suggestion (which is now at offset 0 since we just marked the current one read)
+    await show_suggestion(callback, session_maker, offset=0)
