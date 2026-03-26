@@ -27,5 +27,5 @@ Thumbs.db
 dist/
 build/
 
-# Юридические документы
-RegDocs/
+# Юридические документы (теперь копируем в Docker)
+# RegDocs/
