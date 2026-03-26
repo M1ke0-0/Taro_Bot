@@ -64,6 +64,16 @@ class UserDAO:
 
         await self._session.commit()
 
+    async def set_pro_status(self, telegram_id: int) -> None:
+        """Устанавливает статус подписки PRO для пользователя."""
+        result = await self._session.execute(
+            select(User).where(User.telegram_id == telegram_id)
+        )
+        user = result.scalar_one_or_none()
+        if user:
+            user.subscription_status = "pro"
+            await self._session.commit()
+
     async def update_last_report_date(self, telegram_id: int) -> None:
         """Обновляет дату последнего просмотра недельного отчета."""
         from datetime import datetime

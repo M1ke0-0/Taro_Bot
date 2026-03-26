@@ -3,6 +3,7 @@
 Документация: https://openrouter.ai/docs
 """
 
+import asyncio
 import logging
 
 import aiohttp
@@ -15,6 +16,9 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # Глобальная сессия, чтобы не открывать новые сокеты на каждый запрос
 _session: aiohttp.ClientSession | None = None
+
+# Семафор: не более 20 параллельных запросов к AI (защита от rate-limit)
+_ai_semaphore = asyncio.Semaphore(20)
 
 async def get_session() -> aiohttp.ClientSession:
     global _session
@@ -54,7 +58,7 @@ SYSTEM_PROMPT = """Ты аналитический бот, который инт
 - скрытые психологические паттерны
 - дополнительные рекомендации
 
-И предложи получить **полную интерпретацию по подписке**. Это должно звучать ненавязчиво и естественно.
+И предложи получить **более глубокий разовый платный разбор расклада **. Это должно звучать ненавязчиво и естественно.
 
 СТРУКТУРА ОТВЕТА (обязательно соблюдай):
 
@@ -215,43 +219,42 @@ async def get_spread_interpretation(
     }
 
     max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            session = await get_session()
-            async with session.post(
-                OPENROUTER_URL,
-                json=payload,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=45),
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error("OpenRouter error %s: %s", response.status, error_text)
-                    if response.status >= 500 and attempt < max_retries - 1:
-                        import asyncio
-                        logger.info("Retrying OpenRouter... (Attempt %d)", attempt + 2)
-                        await asyncio.sleep(2 ** attempt)
-                        continue
-                    return "⚠️ Не удалось получить интерпретацию. Попробуйте позже."
+    async with _ai_semaphore:  # не более 20 параллельных запросов к AI
+        for attempt in range(max_retries):
+            try:
+                session = await get_session()
+                async with session.post(
+                    OPENROUTER_URL,
+                    json=payload,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=45),
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error("OpenRouter error %s: %s", response.status, error_text)
+                        if response.status >= 500 and attempt < max_retries - 1:
+                            logger.info("Retrying OpenRouter... (Attempt %d)", attempt + 2)
+                            await asyncio.sleep(2 ** attempt)
+                            continue
+                        return "⚠️ Не удалось получить интерпретацию. Попробуйте позже."
 
-                data = await response.json()
-                return data["choices"][0]["message"]["content"].strip()
+                    data = await response.json()
+                    return data["choices"][0]["message"]["content"].strip()
 
-        except aiohttp.ClientError as e:
-            logger.error("OpenRouter request failed: %s", e)
-            if attempt < max_retries - 1:
-                import asyncio
-                await asyncio.sleep(2 ** attempt)
-                continue
-            return "⚠️ Ошибка соединения с AI. Попробуйте позже."
-        except Exception as e:
-            # Ловим все остальные ошибки (в том числе asyncio.TimeoutError)
-            logger.error("OpenRouter unexpected error: %s", e)
-            if attempt < max_retries - 1:
-                import asyncio
-                await asyncio.sleep(2 ** attempt)
-                continue
-            return "⚠️ Долгий ответ от AI. Попробуйте позже."
+            except aiohttp.ClientError as e:
+                logger.error("OpenRouter request failed: %s", e)
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                return "⚠️ Ошибка соединения с AI. Попробуйте позже."
+            except Exception as e:
+                # Ловим все остальные ошибки (в том числе asyncio.TimeoutError)
+                logger.error("OpenRouter unexpected error: %s", e)
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                return "⚠️ Долгий ответ от AI. Попробуйте позже."
+
 
 
 async def get_weekly_report_interpretation(stats: dict) -> str:

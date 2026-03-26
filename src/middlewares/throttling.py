@@ -32,9 +32,13 @@ class ThrottlingMiddleware(BaseMiddleware):
 
         current_time = time.time()
 
-        # Базовая очистка словаря, чтобы не было утечки памяти
+        # TTL-очистка: удаляем только устаревшие записи (старше rate_limit * 2),
+        # а не всё сразу — чтобы не было «окна спама» при полной очистке.
         if len(self.users) > 10000:
-            self.users.clear()
+            cutoff = current_time - self.rate_limit * 2
+            expired = [k for k, v in self.users.items() if v < cutoff]
+            for k in expired:
+                del self.users[k]
 
         last_time = self.users.get(key)
         if last_time is not None:
@@ -46,3 +50,4 @@ class ThrottlingMiddleware(BaseMiddleware):
 
         self.users[key] = current_time
         return await handler(event, data)
+

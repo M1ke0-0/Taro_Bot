@@ -18,6 +18,7 @@ COPY --from=builder /install /usr/local
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 COPY Tarot_cards/ ./Tarot_cards/
+COPY RegDocs/ ./RegDocs/
 COPY .env .env
 
 ENV PYTHONUNBUFFERED=1 \

@@ -7,6 +7,9 @@ def get_consent_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="✅ Согласен", callback_data="consent:accept"),
                 InlineKeyboardButton(text="❌ Не согласен", callback_data="consent:decline"),
+            ],
+            [
+                InlineKeyboardButton(text="📄 Ознакомиться с документами", callback_data="consent:docs"),
             ]
         ]
     )

@@ -1,12 +1,17 @@
 import asyncio
 import logging
+import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from datetime import datetime, timezone
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiohttp import web
+from aiohttp import web
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from arq import create_pool
 
 from src.config import settings
 from src.db.base import create_session_maker
@@ -25,7 +30,22 @@ async def main() -> None:
         token=settings.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    dp = Dispatcher(storage=MemoryStorage())
+
+    # RedisStorage — если REDIS_URL задан (production), иначе MemoryStorage (dev)
+    redis_url = os.getenv("REDIS_URL")
+    if redis_url:
+        try:
+            from aiogram.fsm.storage.redis import RedisStorage
+            storage = RedisStorage.from_url(redis_url)
+            logging.getLogger(__name__).info("FSM storage: Redis (%s)", redis_url)
+        except Exception as e:
+            logging.getLogger(__name__).warning("Redis unavailable, fallback to MemoryStorage: %s", e)
+            storage = MemoryStorage()
+    else:
+        storage = MemoryStorage()
+        logging.getLogger(__name__).info("FSM storage: MemoryStorage (REDIS_URL not set)")
+
+    dp = Dispatcher(storage=storage)
     dp.message.middleware(ThrottlingMiddleware())
     dp.callback_query.middleware(ThrottlingMiddleware())
 
@@ -35,6 +55,15 @@ async def main() -> None:
     from src.db.setting_dao import SettingDAO
     async with session_maker() as session:
         await SettingDAO(session).init_defaults()
+
+    import src.db.redis as redis_module
+    if redis_url:
+        try:
+            from arq.connections import RedisSettings
+            redis_module.arq_pool = await create_pool(RedisSettings.from_dsn(redis_url))
+            logging.getLogger(__name__).info("ARQ pool initialized")
+        except Exception as e:
+            logging.getLogger(__name__).warning("Failed to init ARQ pool: %s", e)
 
     setup_routers(dp)
 
@@ -48,11 +77,38 @@ async def main() -> None:
     )
     scheduler.start()
 
-    try:
-        await dp.start_polling(bot)
-    finally:
-        await bot.session.close()
+    webhook_url = os.getenv("WEBHOOK_URL")
+
+    if webhook_url:
+        async def on_startup(bot: Bot):
+            await bot.set_webhook(f"{webhook_url}/webhook")
+        dp.startup.register(on_startup)
+
+        app = web.Application()
+        webhook_requests_handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
+        webhook_requests_handler.register(app, path="/webhook")
+        setup_application(app, dp, bot=bot)
+
+        logging.info(f"Starting webhook server on port {os.getenv('WEBHOOK_PORT', 8080)}")
+        
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, host=os.getenv("WEBHOOK_HOST", "0.0.0.0"), port=int(os.getenv("WEBHOOK_PORT", 8080)))
+        await site.start()
+        
+        # Keep the process running
+        await asyncio.Event().wait()
+    else:
+        try:
+            logging.info("Starting polling mode (WEBHOOK_URL not set)")
+            await bot.delete_webhook(drop_pending_updates=True)
+            await dp.start_polling(bot)
+        finally:
+            await bot.session.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass

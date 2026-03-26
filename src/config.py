@@ -26,6 +26,10 @@ class Settings:
 
     APP_ENV: str = os.getenv("APP_ENV", "development")
 
+    PAYMENT_TOKEN: str = os.getenv("PAYMENT_TOKEN", "")
+    PAYMENT_CURRENCY: str = os.getenv("PAYMENT_CURRENCY", "XTR")
+
+
     @property
     def database_url(self) -> str:
         """DSN для asyncpg."""

@@ -56,6 +56,15 @@ class SpreadStates(StatesGroup):
 
 @router.message(F.text == "🃏 Сделать расклад")
 async def cmd_spread(message: Message, state: FSMContext, session_maker: async_sessionmaker) -> None:
+    # Блокируем повторное нажатие, если расклад уже идёт
+    current_state = await state.get_state()
+    if current_state in (
+        SpreadStates.generating_spread.state,
+        SpreadStates.choosing_topic.state,
+        SpreadStates.typing_question.state,
+    ):
+        await message.answer("⏳ Подождите, вы уже начали процесс. Если бот завис, выберите команду /start в меню для сброса.")
+        return
     async with session_maker() as session:
         dao = TarotCardDAO(session)
         card_count = await dao.count()
@@ -172,7 +181,7 @@ async def process_question(
         await message.answer("🔮 Начинаем расклад...")
     else:
         # Чтобы убрать клавиатуру или дать фидбек
-        await message.answer(f"🔮 Принято. Делаю расклад...")
+        await message.answer(f"🔮 Вытягиваю карты...")
 
     await _run_spread(message, message.from_user.id, state, session_maker)
 
@@ -223,20 +232,60 @@ async def _run_spread(
         setting_dao = SettingDAO(session)
         single_price = await setting_dao.get_setting("single_spread_price", "99")
 
-    # Отправляем статус — тянем карты
+    # Сразу запускаем запрос к AI (через очередь ARQ)
     status_msg = await message.answer("⏳ <b>Карты тянутся...</b>")
 
-    # Сразу запускаем запрос к AI (параллельно отправке картинок), чтобы сэкономить время
+    # Определяем доминирующую сферу и стресс индекс заранее
+    stress_index = sum(c.stress_weight for c in cards) / len(cards)
     card_names = [card.name for card in cards]
-    ai_task = asyncio.create_task(
-        get_spread_interpretation(
+    if topic in AREA_KEYS:
+        dominant_area = topic
+    else:
+        area_scores = {
+            "love": sum(c.love_weight for c in cards),
+            "career": sum(c.career_weight for c in cards),
+            "money": sum(c.money_weight for c in cards),
+            "psy": sum(c.psy_weight for c in cards),
+        }
+        dominant_area = max(area_scores, key=area_scores.get)
+
+    import src.db.redis as redis_module
+    
+    if redis_module.arq_pool:
+        # Enqueue to background worker
+        await redis_module.arq_pool.enqueue_job(
+            'generate_spread_and_send',
+            telegram_id=telegram_id,
             card_names=card_names,
             topic=topic,
             question=question,
             is_pro=is_pro,
+            single_price=single_price,
+            stress_index=stress_index,
+            dominant_area=dominant_area
         )
-    )
+    else:
+        # Fallback to direct execution if ARQ isn't active
+        from src.worker import generate_spread_and_send
+        asyncio.create_task(
+            # Using the worker function directly here since worker handles the DB update code now
+            generate_spread_and_send(
+                {"bot": message.bot, "session_maker": session_maker},
+                telegram_id=telegram_id,
+                card_names=card_names,
+                topic=topic,
+                question=question,
+                is_pro=is_pro,
+                single_price=single_price,
+                stress_index=stress_index,
+                dominant_area=dominant_area
+            )
+        )
 
+    # Снимаем блокировку FSM сразу после постановки в очередь/создания таски,
+    # чтобы не блокировать пользователя, если скрипт упадет во время отправки фото
+    await state.clear()
+    
     # Отправляем фото с задержкой 2 сек между картами для эффекта присутствия
     for i, card in enumerate(cards):
         if i > 0:
@@ -275,96 +324,9 @@ async def _run_spread(
     except Exception:
         pass
         
-    analyzing_msg = await message.answer("🔮 <b>Завершаю анализ расклада...</b>")
-
-    # Ждём завершения AI-запроса (который начался ещё до отправки фото)
-    interpretation = await ai_task
-
-    try:
-        await analyzing_msg.delete()
-    except Exception:
-        pass
+    await message.answer("🔮 <b>Карты вытянуты! Интерпретирую их через призму саморефлексии и внутренних состояний...</b>\n\nСекунда — и всё будет готово.")
     
-    # Разбиваем длинный текст на части (лимит Telegram 4096 символов)
-    max_length = 4000
-    paragraphs = interpretation.split('\n')
-    current_chunk = ""
-    chunks = []
-    
-    for paragraph in paragraphs:
-        if len(current_chunk) + len(paragraph) + 1 > max_length:
-            chunks.append(current_chunk)
-            current_chunk = paragraph
-        else:
-            if current_chunk:
-                current_chunk += "\n" + paragraph
-            else:
-                current_chunk = paragraph
-    
-    if current_chunk:
-        chunks.append(current_chunk)
-
-    for i, chunk in enumerate(chunks):
-        # Клавиатуру добавляем только к последнему сообщению
-        reply_markup = get_post_spread_keyboard(is_pro=is_pro, price=single_price) if i == len(chunks) - 1 else None
-        
-        # Отправляем ответ без ParseMode (чтобы избежать ошибки при HTML тегах)
-        await message.answer(
-            chunk, 
-            parse_mode=None, 
-            reply_markup=reply_markup
-        )
-    
-    # Снимаем блокировку FSM
-    await state.clear()
-
-    # ─── Подсчёт статистики и обновление БД ───
-    stress_index = sum(c.stress_weight for c in cards) / len(cards)
-
-    # Определяем доминирующую сферу по теме расклада
-    if topic in AREA_KEYS:
-        dominant_area = topic
-    else:
-        # Для конкретного вопроса — считаем по весам карт
-        area_scores = {
-            "love": sum(c.love_weight for c in cards),
-            "career": sum(c.career_weight for c in cards),
-            "money": sum(c.money_weight for c in cards),
-            "psy": sum(c.psy_weight for c in cards),
-        }
-        dominant_area = max(area_scores, key=area_scores.get)
-
-    area_labels = {
-        "love": "Любовь",
-        "career": "Карьера",
-        "money": "Деньги",
-        "psy": "Психика",
-    }
-
-    async with session_maker() as session:
-        user_dao = UserDAO(session)
-        user = await user_dao.get_by_telegram_id(telegram_id)
-        
-        await user_dao.update_spread_stats(
-            telegram_id=telegram_id,
-            stress_index=round(stress_index, 2),
-            dominant_area=area_labels.get(dominant_area, dominant_area),
-        )
-        
-        if user:
-            history_dao = SpreadHistoryDAO(session)
-            await history_dao.add_history(
-                user_id=user.id,
-                topic=area_labels.get(topic, topic),
-                cards=", ".join([c.name for c in cards]),
-                stress_index=round(stress_index, 2)
-            )
-            await session.commit()
-
-    logger.info(
-        "Spread done for user %s | cards: %s | stress: %.2f | area: %s",
-        telegram_id, card_names, stress_index, dominant_area,
-    )
+    logger.info("Spread queued for user %s | cards: %s", telegram_id, card_names)
 
 # ─────────────── Дополнительные действия после расклада ───────────────
 
@@ -375,7 +337,29 @@ async def process_deep_dive(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "spread:deep_dive_pay")
 async def process_deep_dive_pay(callback: CallbackQuery, session_maker: async_sessionmaker) -> None:
+    from src.config import settings
+    from aiogram.types import LabeledPrice
+    
     async with session_maker() as session:
         setting_dao = SettingDAO(session)
-        price = await setting_dao.get_setting("single_spread_price", "99")
-    await callback.answer(f"🚧 Оплатите {price} руб для разового глубокого разбора. (Интеграция оплаты в разработке).", show_alert=True)
+        price_str = await setting_dao.get_setting("single_spread_price", "99")
+        try:
+            price = int(price_str)
+        except ValueError:
+            price = 99
+            
+    is_fiat = settings.PAYMENT_CURRENCY != "XTR"
+    amount = price * 100 if is_fiat else price
+
+    prices = [LabeledPrice(label="Глубокий разбор", amount=amount)]
+
+    await callback.message.answer_invoice(
+        title="Разовый глубокий разбор",
+        description="Подробный анализ вашего расклада с учетом всех связок карт и вашего базового состояния.",
+        payload="single_spread",
+        provider_token=settings.PAYMENT_TOKEN,
+        currency=settings.PAYMENT_CURRENCY,
+        prices=prices,
+        start_parameter="single_spread"
+    )
+    await callback.answer()

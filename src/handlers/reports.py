@@ -105,7 +105,7 @@ async def _generate_and_send_report(message: Message, telegram_id: int, session_
         final_text = (
             f"📊 <b>Ваш Недельный Отчет</b>\n\n"
             f"📈 <i>Раскладов за неделю: {len(history)}</i>\n"
-            f"📉 <i>Средний уровень стресса: {avg_stress:.1f}/1.0</i>\n"
+            f"📉 <i>Средний уровень стресса: {avg_stress:.1f}\n"
             f"🌀 <i>Частая сфера: {dominant_area}</i>\n"
             f"📅 <i>Пиковый день: {peak_day}</i>\n\n"
             f"{html.escape(report_text)}"

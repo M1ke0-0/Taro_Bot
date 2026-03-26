@@ -43,5 +43,30 @@ async def show_pro_info_callback(callback: CallbackQuery, session_maker: async_s
 
 
 @router.callback_query(F.data == "pro:buy")
-async def process_buy_pro(callback: CallbackQuery) -> None:
-    await callback.answer("🚧 Интеграция оплаты в разработке...", show_alert=True)
+async def process_buy_pro(callback: CallbackQuery, session_maker: async_sessionmaker) -> None:
+    from src.config import settings
+    from aiogram.types import LabeledPrice
+    
+    async with session_maker() as session:
+        setting_dao = SettingDAO(session)
+        price_str = await setting_dao.get_setting("pro_sub_price", "500")
+        try:
+            price = int(price_str)
+        except ValueError:
+            price = 500
+
+    is_fiat = settings.PAYMENT_CURRENCY != "XTR"
+    amount = price * 100 if is_fiat else price
+
+    prices = [LabeledPrice(label="Подписка PRO", amount=amount)]
+
+    await callback.message.answer_invoice(
+        title="Подписка PRO (1 месяц)",
+        description="Полный доступ ко всем возможностям бота: глубокие разборы, безлимитные расклады и аналитика.",
+        payload="pro_sub",
+        provider_token=settings.PAYMENT_TOKEN,
+        currency=settings.PAYMENT_CURRENCY,
+        prices=prices,
+        start_parameter="pro_sub"
+    )
+    await callback.answer()
