@@ -174,6 +174,9 @@ class TelegramAlertHandler(logging.Handler):
     }
 
     def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno < logging.ERROR:
+            return
+
         # Пропускаем шумные библиотеки
         for ignored in self._IGNORED_LOGGERS:
             if record.name.startswith(ignored):
