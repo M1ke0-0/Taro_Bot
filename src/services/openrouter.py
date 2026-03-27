@@ -302,11 +302,11 @@ async def get_weekly_report_interpretation(stats: dict) -> str:
             if response.status != 200:
                 error_text = await response.text()
                 logger.error("OpenRouter report error %s: %s", response.status, error_text)
-                return "Извини, не удалось сформировать отчет. Попробуй позже."
+                return f"⚠️ Ошибка API ({response.status}). Не удалось сформировать отчет."
             
             data = await response.json()
             return data["choices"][0]["message"]["content"].strip()
 
     except Exception as e:
-        logger.error("OpenRouter request failed (Weekly Report): %s", e)
-        return "Произошла ошибка при составлении отчета. Попробуй позже."
+        logger.error("OpenRouter request failed (Weekly Report): %s", e, exc_info=True)
+        return "⚠️ Ошибка сети или сервиса при составлении отчета."
