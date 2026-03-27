@@ -16,7 +16,12 @@ async def create_session_maker() -> async_sessionmaker[AsyncSession]:
     )
 
     # Создаём таблицы при старте (если не существуют)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        from src.services.alerts import alert
+        await alert.send("Не удалось подключиться к PostgreSQL при старте", error=e, level="critical", source="db.base")
+        raise
 
     return async_sessionmaker(engine, expire_on_commit=False)

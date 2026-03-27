@@ -18,6 +18,7 @@ from src.db.base import create_session_maker
 from src.handlers import setup_routers
 from src.middlewares.throttling import ThrottlingMiddleware
 from src.services.scheduler import check_and_send_weekly_reports
+from src.services.alerts import alert, TelegramAlertHandler
 
 
 async def main() -> None:
@@ -25,11 +26,13 @@ async def main() -> None:
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
+    logging.getLogger().addHandler(TelegramAlertHandler())
 
     bot = Bot(
         token=settings.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+    alert.configure(bot_token=settings.BOT_TOKEN)
 
     # RedisStorage — если REDIS_URL задан (production), иначе MemoryStorage (dev)
     redis_url = os.getenv("REDIS_URL")

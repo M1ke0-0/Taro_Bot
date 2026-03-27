@@ -9,6 +9,7 @@ import logging
 import aiohttp
 
 from src.config import settings
+from src.services.alerts import alert
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +237,7 @@ async def get_spread_interpretation(
                             logger.info("Retrying OpenRouter... (Attempt %d)", attempt + 2)
                             await asyncio.sleep(2 ** attempt)
                             continue
+                        await alert.send(f"OpenRouter API вернул {response.status} после {max_retries} попыток:\n{error_text[:500]}", source="openrouter")
                         return "⚠️ Не удалось получить интерпретацию. Попробуйте позже."
 
                     data = await response.json()
@@ -246,6 +248,7 @@ async def get_spread_interpretation(
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
                     continue
+                await alert.send("OpenRouter недоступен после всех попыток (сеть)", error=e, source="openrouter")
                 return "⚠️ Ошибка соединения с AI. Попробуйте позже."
             except Exception as e:
                 # Ловим все остальные ошибки (в том числе asyncio.TimeoutError)
@@ -253,8 +256,8 @@ async def get_spread_interpretation(
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
                     continue
+                await alert.send("OpenRouter — неожиданная ошибка после всех попыток", error=e, source="openrouter")
                 return "⚠️ Долгий ответ от AI. Попробуйте позже."
-
 
 
 async def get_weekly_report_interpretation(stats: dict) -> str:
@@ -309,4 +312,5 @@ async def get_weekly_report_interpretation(stats: dict) -> str:
 
     except Exception as e:
         logger.error("OpenRouter request failed (Weekly Report): %s", e, exc_info=True)
+        await alert.send("OpenRouter упал при генерации еженедельного отчёта", error=e, source="openrouter.weekly_report")
         return "⚠️ Ошибка сети или сервиса при составлении отчета."
