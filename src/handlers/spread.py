@@ -20,7 +20,7 @@ from aiogram.types import (
     CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup,
     Message, FSInputFile,
 )
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from src.db.tarot_card_dao import TarotCardDAO
 from src.db.user_dao import UserDAO
@@ -28,7 +28,6 @@ from src.db.spread_history_dao import SpreadHistoryDAO
 from src.db.setting_dao import SettingDAO
 from src.keyboards.spread import get_topic_keyboard, get_post_spread_keyboard
 from src.keyboards.main_menu import get_main_menu
-from src.services.openrouter import get_spread_interpretation
 from src.enums import SpreadTopic
 
 logger = logging.getLogger(__name__)
@@ -123,7 +122,6 @@ async def cmd_spread(message: Message, state: FSMContext, session_maker: async_s
 async def process_topic(
     callback: CallbackQuery,
     state: FSMContext,
-    session: AsyncSession,
 ) -> None:
     topic = callback.data.split(":")[1]
     await callback.answer()
@@ -152,7 +150,7 @@ async def process_topic(
 async def process_question(
     message: Message,
     state: FSMContext,
-    session: AsyncSession,
+    session_maker: async_sessionmaker,
 ) -> None:
     await state.set_state(SpreadStates.generating_spread)
 
@@ -180,7 +178,7 @@ async def process_question(
     else:
         await message.answer("🔮 Вытягиваю карты...")
 
-    await _run_spread(message, message.from_user.id, state, session)
+    await _run_spread(message, message.from_user.id, state, session_maker)
 
 
 # ─────────────── Основная логика расклада ───────────────
@@ -189,15 +187,17 @@ async def _run_spread(
     message: Message,
     user_id: int,
     state: FSMContext,
-    session: AsyncSession,
+    session_maker: async_sessionmaker,
 ) -> None:
     data = await state.get_data()
     topic: str = data["topic"]
     question: str | None = data.get("question")
     telegram_id = user_id
 
-    cards = await TarotCardDAO(session).get_random_cards(3)
-    user = await UserDAO(session).get_by_telegram_id(telegram_id)
+    async with session_maker() as session:
+        cards = await TarotCardDAO(session).get_random_cards(3)
+        user = await UserDAO(session).get_by_telegram_id(telegram_id)
+        single_price = await SettingDAO(session).get_setting("single_spread_price", "99")
 
     if len(cards) < 3:
         await message.answer("⚠️ Не удалось вытянуть карты. Попробуйте позже.")
@@ -205,9 +205,6 @@ async def _run_spread(
         return
 
     is_pro = user and user.subscription_status == "pro"
-
-    setting_dao = SettingDAO(session)
-    single_price = await setting_dao.get_setting("single_spread_price", "99")
 
     status_msg = await message.answer("⏳ <b>Карты тянутся...</b>")
 
@@ -242,7 +239,7 @@ async def _run_spread(
         from src.worker import generate_spread_and_send
         asyncio.create_task(
             generate_spread_and_send(
-                {"bot": message.bot, "session_maker": session._session_factory if hasattr(session, '_session_factory') else None},
+                {"bot": message.bot, "session_maker": session_maker},
                 telegram_id=telegram_id,
                 card_names=card_names,
                 topic=topic,
@@ -270,9 +267,9 @@ async def _run_spread(
                         sent_msg = await message.answer_photo(photo=photo_obj, caption=caption)
                         if sent_msg.photo:
                             file_id = sent_msg.photo[-1].file_id
-                            dao_update = TarotCardDAO(session)
-                            await dao_update.update_photo(card.id, file_id)
-                            await session.commit()
+                            async with session_maker() as s:
+                                await TarotCardDAO(s).update_photo(card.id, file_id)
+                                await s.commit()
                     else:
                         await message.answer(caption)
                 else:
