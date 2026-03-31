@@ -18,7 +18,6 @@ router = Router(name="registration")
 
 NAME_RE = re.compile(r"^[А-Яа-яЁёA-Za-z]{2,20}$")
 
-# Абсолютный путь к папке с юридическими документами
 _REGDOCS_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "RegDocs")
 )
@@ -29,12 +28,10 @@ class Registration(StatesGroup):
     name = State()
 
 
-
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext, session_maker: async_sessionmaker) -> None:
-    # Always clear state on /start to rescue users from stuck flows
     await state.clear()
-    
+
     async with session_maker() as session:
         dao = UserDAO(session)
         user = await dao.get_by_telegram_id(message.from_user.id)
@@ -63,7 +60,6 @@ async def cmd_start(message: Message, state: FSMContext, session_maker: async_se
 
 @router.callback_query(Registration.consent, F.data == "consent:docs")
 async def process_view_docs(callback: CallbackQuery) -> None:
-    # Отправляем юридические документы из папки RegDocs
     if os.path.isdir(_REGDOCS_DIR):
         doc_files = sorted([
             f for f in os.listdir(_REGDOCS_DIR)
@@ -76,7 +72,7 @@ async def process_view_docs(callback: CallbackQuery) -> None:
         for filename in doc_files:
             filepath = os.path.join(_REGDOCS_DIR, filename)
             await callback.message.answer_document(FSInputFile(filepath))
-        
+
         await callback.answer("Все документы отправлены! 📄")
     else:
         await callback.answer("Папка с документами не найдена ❌", show_alert=True)
@@ -101,13 +97,6 @@ async def process_consent_decline(callback: CallbackQuery, state: FSMContext) ->
     await callback.answer()
 
 
-
-
-
-
-
-
-
 @router.message(Registration.name, F.text)
 async def process_name(message: Message, state: FSMContext, session_maker: async_sessionmaker) -> None:
     name = message.text.strip()
@@ -119,7 +108,7 @@ async def process_name(message: Message, state: FSMContext, session_maker: async
         return
 
     await state.clear()
-    
+
     async with session_maker() as session:
         dao = UserDAO(session)
         await dao.create(
