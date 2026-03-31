@@ -80,6 +80,19 @@ async def main() -> None:
     )
     scheduler.start()
 
+    # Запускаем aiohttp-сервер для webhook ЮKassa
+    if settings.YOOKASSA_SHOP_ID and settings.YOOKASSA_SECRET_KEY:
+        from src.services.yookassa_webhook import setup_yookassa_webhook
+        yk_app = web.Application()
+        setup_yookassa_webhook(yk_app, bot, session_maker)
+        yk_runner = web.AppRunner(yk_app)
+        await yk_runner.setup()
+        yk_site = web.TCPSite(yk_runner, host="0.0.0.0", port=settings.YOOKASSA_WEBHOOK_PORT)
+        await yk_site.start()
+        logging.getLogger(__name__).info(
+            "YooKassa webhook listening on port %s", settings.YOOKASSA_WEBHOOK_PORT
+        )
+
     webhook_url = os.getenv("WEBHOOK_URL")
 
     if webhook_url:

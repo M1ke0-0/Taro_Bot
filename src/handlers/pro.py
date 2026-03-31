@@ -1,12 +1,20 @@
+import logging
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from src.keyboards.pro import get_pro_keyboard
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from src.db.setting_dao import SettingDAO
 
+logger = logging.getLogger(__name__)
 router = Router(name="pro")
+
+
+def _pay_keyboard(url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Перейти к оплате", url=url)]
+    ])
 
 def get_pro_text(price: str) -> str:
     return (
@@ -45,28 +53,33 @@ async def show_pro_info_callback(callback: CallbackQuery, session_maker: async_s
 @router.callback_query(F.data == "pro:buy")
 async def process_buy_pro(callback: CallbackQuery, session_maker: async_sessionmaker) -> None:
     from src.config import settings
-    from aiogram.types import LabeledPrice
-    
+    from src.services.yookassa import create_payment
+
     async with session_maker() as session:
-        setting_dao = SettingDAO(session)
-        price_str = await setting_dao.get_setting("pro_sub_price", "500")
+        price_str = await SettingDAO(session).get_setting("pro_sub_price", "500")
         try:
             price = int(price_str)
         except ValueError:
             price = 500
 
-    is_fiat = settings.PAYMENT_CURRENCY != "XTR"
-    amount = price * 100 if is_fiat else price
+    try:
+        payment = await create_payment(
+            amount=float(price),
+            currency=settings.PAYMENT_CURRENCY,
+            description="Подписка PRO (1 месяц)",
+            payload="pro_sub",
+            return_url=settings.YOOKASSA_RETURN_URL,
+            telegram_id=callback.from_user.id,
+        )
+        await callback.message.answer(
+            f"💳 <b>Оплата подписки PRO</b>\n\n"
+            f"Сумма: <b>{price} ₽</b>\n\n"
+            f"Нажмите кнопку ниже для перехода на страницу оплаты.\n"
+            f"После оплаты вернитесь в бот — подписка активируется автоматически.",
+            reply_markup=_pay_keyboard(payment["confirmation_url"]),
+        )
+    except Exception as e:
+        await callback.message.answer("❌ Не удалось создать платёж. Попробуйте позже.")
+        logger.error("YooKassa payment creation failed: %s", e)
 
-    prices = [LabeledPrice(label="Подписка PRO", amount=amount)]
-
-    await callback.message.answer_invoice(
-        title="Подписка PRO (1 месяц)",
-        description="Полный доступ ко всем возможностям бота: глубокие разборы, безлимитные расклады и аналитика.",
-        payload="pro_sub",
-        provider_token=settings.PAYMENT_TOKEN,
-        currency=settings.PAYMENT_CURRENCY,
-        prices=prices,
-        start_parameter="pro_sub"
-    )
     await callback.answer()

@@ -27,7 +27,12 @@ class Settings:
     APP_ENV: str = os.getenv("APP_ENV", "development")
 
     PAYMENT_TOKEN: str = os.getenv("PAYMENT_TOKEN", "")
-    PAYMENT_CURRENCY: str = os.getenv("PAYMENT_CURRENCY", "XTR")
+    PAYMENT_CURRENCY: str = os.getenv("PAYMENT_CURRENCY", "RUB")
+
+    YOOKASSA_SHOP_ID: str = os.getenv("YOOKASSA_SHOP_ID", "")
+    YOOKASSA_SECRET_KEY: str = os.getenv("YOOKASSA_SECRET_KEY", "")
+    YOOKASSA_WEBHOOK_PORT: int = int(os.getenv("YOOKASSA_WEBHOOK_PORT", "8081"))
+    YOOKASSA_RETURN_URL: str = os.getenv("YOOKASSA_RETURN_URL", "https://t.me/")
 
 
     @property
