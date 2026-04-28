@@ -4,10 +4,10 @@ import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from datetime import datetime, timezone
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiohttp import web
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -28,9 +28,25 @@ async def main() -> None:
     )
     logging.getLogger().addHandler(TelegramAlertHandler())
 
+    # --- Proxy support ---
+    proxy_url = os.getenv("PROXY_URL")  # e.g. socks5://user:pass@host:port
+    if proxy_url:
+        logger = logging.getLogger(__name__)
+        logger.info("Using proxy: %s", proxy_url)
+        try:
+            from aiohttp_socks import ProxyConnector
+            connector = ProxyConnector.from_url(proxy_url)
+            session = AiohttpSession(connector=connector)
+        except ImportError:
+            logger.warning("aiohttp-socks not installed, proxy ignored. Run: pip install aiohttp-socks")
+            session = AiohttpSession()
+    else:
+        session = AiohttpSession()
+
     bot = Bot(
         token=settings.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        session=session,
     )
     alert.configure(bot_token=settings.BOT_TOKEN)
 
