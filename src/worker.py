@@ -2,6 +2,7 @@ import logging
 import os
 from arq.connections import RedisSettings
 from aiogram import Bot
+from aiogram.client.session.aiohttp import AiohttpSession
 
 from src.config import settings
 from src.services.openrouter import get_spread_interpretation
@@ -97,7 +98,9 @@ async def generate_spread_and_send(ctx, telegram_id: int, card_names: list[str],
 
 
 async def startup(ctx):
-    ctx['bot'] = Bot(token=settings.BOT_TOKEN)
+    proxy_url = os.getenv("PROXY_URL")
+    bot_session = AiohttpSession(proxy=proxy_url) if proxy_url else AiohttpSession()
+    ctx['bot'] = Bot(token=settings.BOT_TOKEN, session=bot_session)
     ctx['session_maker'] = await create_session_maker()
     logger.info("Worker started up")
 
@@ -113,3 +116,4 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     max_jobs = 50
+

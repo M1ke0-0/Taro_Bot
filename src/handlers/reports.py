@@ -3,7 +3,7 @@ from datetime import datetime
 
 from aiogram import F, Router
 from aiogram.types import Message, CallbackQuery
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from src.db.spread_history_dao import SpreadHistoryDAO
 from src.db.user_dao import UserDAO
@@ -15,21 +15,23 @@ router = Router(name="reports")
 
 
 @router.message(F.text == "📊 Недельный отчет")
-async def process_weekly_report(message: Message, session: AsyncSession) -> None:
-    await _generate_and_send_report(message, message.from_user.id, session)
+async def process_weekly_report(message: Message, session_maker: async_sessionmaker) -> None:
+    async with session_maker() as session:
+        await _generate_and_send_report(message, message.from_user.id, session)
 
 
 @router.callback_query(F.data == "report:generate")
-async def process_weekly_report_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+async def process_weekly_report_callback(callback: CallbackQuery, session_maker: async_sessionmaker) -> None:
     await callback.answer("⏳ Анализирую...", show_alert=False)
     try:
         await callback.message.delete()
     except Exception:
         pass
-    await _generate_and_send_report(callback.message, callback.from_user.id, session)
+    async with session_maker() as session:
+        await _generate_and_send_report(callback.message, callback.from_user.id, session)
 
 
-async def _generate_and_send_report(message: Message, telegram_id: int, session: AsyncSession) -> None:
+async def _generate_and_send_report(message: Message, telegram_id: int, session) -> None:
     user_dao = UserDAO(session)
     user = await user_dao.get_by_telegram_id(telegram_id)
 
@@ -96,3 +98,4 @@ async def _generate_and_send_report(message: Message, telegram_id: int, session:
     except Exception as e:
         logger.error("Error generating weekly report", exc_info=e)
         await status_msg.edit_text("⚠️ Возникла ошибка при создании отчета. Пожалуйста, попробуйте позже.")
+

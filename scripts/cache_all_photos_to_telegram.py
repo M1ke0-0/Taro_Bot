@@ -27,7 +27,7 @@ async def main():
 
     async with session_maker() as session:
         # Пытаемся взять ADMIN_ID, если нет — берём первого пользователя из БД
-        target_id = settings.ADMIN_ID
+        target_id = settings.ADMIN_IDS[0] if settings.ADMIN_IDS else None
         if not target_id:
             user = (await session.execute(select(User).limit(1))).scalar_one_or_none()
             if user:
