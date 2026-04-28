@@ -125,9 +125,23 @@ async def main() -> None:
         # Keep the process running
         await asyncio.Event().wait()
     else:
+        logging.info("Starting polling mode (WEBHOOK_URL not set)")
+        retry_delay = 15  # seconds
+        max_delay = 300   # 5 minutes
+        attempt = 0
+        while True:
+            try:
+                await bot.delete_webhook(drop_pending_updates=True)
+                break  # connected — exit retry loop
+            except Exception as e:
+                attempt += 1
+                delay = min(retry_delay * attempt, max_delay)
+                logging.getLogger(__name__).error(
+                    "Cannot reach Telegram (attempt %d): %s. Retrying in %ds...",
+                    attempt, e, delay
+                )
+                await asyncio.sleep(delay)
         try:
-            logging.info("Starting polling mode (WEBHOOK_URL not set)")
-            await bot.delete_webhook(drop_pending_updates=True)
             await dp.start_polling(bot)
         finally:
             await bot.session.close()
