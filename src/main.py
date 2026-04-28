@@ -35,8 +35,14 @@ async def main() -> None:
         logger.info("Using proxy: %s", proxy_url)
         try:
             from aiohttp_socks import ProxyConnector
-            connector = ProxyConnector.from_url(proxy_url)
-            session = AiohttpSession(connector=connector)
+
+            class _SocksSession(AiohttpSession):
+                """AiohttpSession с SOCKS5-коннектором (совместимо со всеми aiogram 3.x)."""
+                def __init__(self, _proxy_url: str, **kwargs):
+                    super().__init__(**kwargs)
+                    self._connector = ProxyConnector.from_url(_proxy_url)
+
+            session = _SocksSession(_proxy_url=proxy_url)
         except ImportError:
             logger.warning("aiohttp-socks not installed, proxy ignored. Run: pip install aiohttp-socks")
             session = AiohttpSession()
