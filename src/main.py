@@ -31,23 +31,11 @@ async def main() -> None:
     # --- Proxy support ---
     proxy_url = os.getenv("PROXY_URL")  # e.g. socks5://user:pass@host:port
     if proxy_url:
-        logger = logging.getLogger(__name__)
-        logger.info("Using proxy: %s", proxy_url)
-        try:
-            from aiohttp_socks import ProxyConnector
-
-            class _SocksSession(AiohttpSession):
-                """AiohttpSession с SOCKS5-коннектором (совместимо со всеми aiogram 3.x)."""
-                def __init__(self, _proxy_url: str, **kwargs):
-                    super().__init__(**kwargs)
-                    self._connector = ProxyConnector.from_url(_proxy_url)
-
-            session = _SocksSession(_proxy_url=proxy_url)
-        except ImportError:
-            logger.warning("aiohttp-socks not installed, proxy ignored. Run: pip install aiohttp-socks")
-            session = AiohttpSession()
+        logging.getLogger(__name__).info("Using proxy: %s", proxy_url)
+        session = AiohttpSession(proxy=proxy_url)
     else:
         session = AiohttpSession()
+
 
     bot = Bot(
         token=settings.BOT_TOKEN,
