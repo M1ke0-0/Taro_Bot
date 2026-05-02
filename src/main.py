@@ -70,11 +70,26 @@ async def main() -> None:
         await SettingDAO(session).init_defaults()
 
     import src.db.redis as redis_module
+    worker_process = None  # subprocess ARQ-воркера (только для локальной разработки)
     if redis_url:
         try:
             from arq.connections import RedisSettings
             redis_module.arq_pool = await create_pool(RedisSettings.from_dsn(redis_url))
             logging.getLogger(__name__).info("ARQ pool initialized")
+
+            # В локальной разработке запускаем воркер автоматически в subprocess
+            app_env = os.getenv("APP_ENV", "development")
+            if app_env != "production":
+                import subprocess
+                import sys
+                worker_process = subprocess.Popen(
+                    [sys.executable, "-m", "arq", "src.worker.WorkerSettings"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                logging.getLogger(__name__).info(
+                    "ARQ worker started as subprocess (PID %s)", worker_process.pid
+                )
         except Exception as e:
             logging.getLogger(__name__).warning("Failed to init ARQ pool: %s", e)
 
@@ -101,6 +116,11 @@ async def main() -> None:
         await yk_site.start()
         logging.getLogger(__name__).info(
             "YooKassa webhook listening on port %s", settings.YOOKASSA_WEBHOOK_PORT
+        )
+    else:
+        logging.getLogger(__name__).warning(
+            "YooKassa is NOT configured (YOOKASSA_SHOP_ID / YOOKASSA_SECRET_KEY missing). "
+            "Payments via YooKassa will fail."
         )
 
     webhook_url = os.getenv("WEBHOOK_URL")
@@ -145,6 +165,9 @@ async def main() -> None:
             await dp.start_polling(bot)
         finally:
             await bot.session.close()
+            if worker_process is not None:
+                worker_process.terminate()
+                logging.getLogger(__name__).info("ARQ worker subprocess terminated")
 
 
 if __name__ == "__main__":

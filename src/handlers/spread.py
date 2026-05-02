@@ -75,7 +75,7 @@ async def cmd_spread(message: Message, state: FSMContext, session_maker: async_s
         user_dao = UserDAO(session)
         user = await user_dao.get_by_telegram_id(message.from_user.id)
 
-        if user and user.subscription_status != "pro":
+        if user and not user.is_pro_active:
             history_dao = SpreadHistoryDAO(session)
             today_count = await history_dao.get_today_spread_count(user.id)
 
@@ -204,7 +204,7 @@ async def _run_spread(
         await state.clear()
         return
 
-    is_pro = user and user.subscription_status == "pro"
+    is_pro = user.is_pro_active if user else False
 
     status_msg = await message.answer("⏳ <b>Карты тянутся...</b>")
 

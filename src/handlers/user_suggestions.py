@@ -37,7 +37,7 @@ async def process_suggestion_text(message: Message, state: FSMContext, session_m
         async with session_maker() as session:
             user_dao = UserDAO(session)
             user = await user_dao.get_by_telegram_id(message.from_user.id)
-            is_pro = user.subscription_status == "pro" if user else False
+            is_pro = user.is_pro_active if user else False
             
         await message.answer(
             "Вы вернулись в главное меню.",
@@ -70,7 +70,7 @@ async def process_suggestion_text(message: Message, state: FSMContext, session_m
     async with session_maker() as session:
         user_dao = UserDAO(session)
         user = await user_dao.get_by_telegram_id(message.from_user.id)
-        is_pro = user.subscription_status == "pro" if user else False
+        is_pro = user.is_pro_active if user else False
 
     await message.answer(
         "✅ <b>Спасибо за ваше предложение!</b>\n\nМы обязательно рассмотрим его.",

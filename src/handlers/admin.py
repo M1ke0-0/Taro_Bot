@@ -284,7 +284,9 @@ async def process_grant_pro_id(message: Message, state: FSMContext, session_make
             await message.answer(f"❌ Пользователь с ID <code>{target_id}</code> не найден в базе данных.", reply_markup=get_admin_back_keyboard())
             return
             
+        from datetime import datetime, timezone, timedelta
         user.subscription_status = "pro"
+        user.subscription_end_date = None  # None = безлимитный (выдан администратором)
         await session.commit()
         
     await state.clear()
@@ -346,6 +348,7 @@ async def process_revoke_pro_id(message: Message, state: FSMContext, session_mak
             return
             
         user.subscription_status = "free"
+        user.subscription_end_date = None
         await session.commit()
         
     await state.clear()
