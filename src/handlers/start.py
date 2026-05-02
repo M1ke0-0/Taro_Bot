@@ -38,7 +38,7 @@ async def cmd_start(message: Message, state: FSMContext, session_maker: async_se
         already_registered = user is not None
 
     if already_registered:
-        is_pro = user.subscription_status == "pro"
+        is_pro = user.is_pro_active
         await message.answer(
             "С возвращением! Выберите действие:",
             reply_markup=get_main_menu(is_pro=is_pro),

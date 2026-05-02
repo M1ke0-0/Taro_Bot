@@ -54,6 +54,8 @@ async def yookassa_webhook_handler(request: web.Request) -> web.Response:
             logger.warning("YooKassa webhook: user %s not found", telegram_id)
             return web.Response(status=200)
 
+        payment = None  # будет установлен в блоке if/elif ниже
+
         if payload == "pro_sub":
             await user_dao.set_pro_status(telegram_id)
             payment = await payment_dao.add_payment(user.id, amount_value, "pro_sub", "success")
@@ -82,23 +84,24 @@ async def yookassa_webhook_handler(request: web.Request) -> web.Response:
             logger.warning("YooKassa webhook: unknown payload '%s'", payload)
             return web.Response(status=200)
 
-    # Отправляем PDF-квитанцию
-    try:
-        pdf_bytes = generate_receipt(
-            payment_id=payment.id,
-            user_name=user.name or str(telegram_id),
-            amount=amount_value,
-            currency=currency,
-            payment_type=payment.payment_type,
-            created_at=payment.created_at,
-        )
-        await bot.send_document(
-            telegram_id,
-            BufferedInputFile(pdf_bytes, filename=f"receipt_{payment.id:06d}.pdf"),
-            caption="📄 Ваша квитанция об оплате",
-        )
-    except Exception as e:
-        logger.error("Failed to send receipt to %s: %s", telegram_id, e)
+    # Отправляем PDF-квитанцию (только если платёж был успешно записан)
+    if payment is not None:
+        try:
+            pdf_bytes = generate_receipt(
+                payment_id=payment.id,
+                user_name=user.name or str(telegram_id),
+                amount=amount_value,
+                currency=currency,
+                payment_type=payment.payment_type,
+                created_at=payment.created_at,
+            )
+            await bot.send_document(
+                telegram_id,
+                BufferedInputFile(pdf_bytes, filename=f"receipt_{payment.id:06d}.pdf"),
+                caption="📄 Ваша квитанция об оплате",
+            )
+        except Exception as e:
+            logger.error("Failed to send receipt to %s: %s", telegram_id, e)
 
     return web.Response(status=200)
 

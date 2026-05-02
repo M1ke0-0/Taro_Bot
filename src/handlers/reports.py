@@ -33,7 +33,7 @@ async def _generate_and_send_report(message: Message, telegram_id: int, session:
     user_dao = UserDAO(session)
     user = await user_dao.get_by_telegram_id(telegram_id)
 
-    if not user or user.subscription_status != "pro":
+    if not user or not user.is_pro_active:
         await message.answer("Эта функция доступна только по подписке ⭐ PRO.")
         return
 

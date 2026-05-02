@@ -30,12 +30,15 @@ async def show_profile(message: Message, session_maker: async_sessionmaker) -> N
         return
 
     # Формируем строку статуса подписки
-    if user.subscription_status == "pro":
+    if user.is_pro_active:
         if user.subscription_end_date:
             end = user.subscription_end_date.strftime("%d.%m.%Y")
             subscription_text = f"⭐ PRO (до {end})"
         else:
             subscription_text = "⭐ PRO (безлимит)"
+    elif user.subscription_status == "pro" and not user.is_pro_active:
+        # Подписка была, но истекла
+        subscription_text = "❌ PRO (истекла)"
     else:
         subscription_text = "🔒 Free (подписка не приобретена)"
 
@@ -66,7 +69,7 @@ async def profile_new_spread(callback: CallbackQuery, state: FSMContext, session
         user_dao = UserDAO(session)
         user = await user_dao.get_by_telegram_id(callback.from_user.id)
         
-        if user and user.subscription_status != "pro":
+        if user and not user.is_pro_active:
             history_dao = SpreadHistoryDAO(session)
             today_count = await history_dao.get_today_spread_count(user.id)
             if today_count >= 1:
@@ -104,7 +107,7 @@ async def profile_new_spread(callback: CallbackQuery, state: FSMContext, session
 async def profile_back(callback: CallbackQuery, session_maker: async_sessionmaker) -> None:
     async with session_maker() as session:
         user = await UserDAO(session).get_by_telegram_id(callback.from_user.id)
-        is_pro = user and user.subscription_status == "pro"
+        is_pro = user.is_pro_active if user else False
 
     await callback.message.delete()
     await callback.message.answer("Выберите действие:", reply_markup=get_main_menu(is_pro=is_pro))

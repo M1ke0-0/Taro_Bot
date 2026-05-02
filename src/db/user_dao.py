@@ -1,3 +1,4 @@
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from sqlalchemy import select
@@ -64,25 +65,25 @@ class UserDAO:
 
         await self._session.commit()
 
-    async def set_pro_status(self, telegram_id: int) -> None:
-        """Устанавливает статус подписки PRO для пользователя."""
+    async def set_pro_status(self, telegram_id: int, days: int = 30) -> None:
+        """Устанавливает статус подписки PRO для пользователя на указанное количество дней."""
         result = await self._session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
         user = result.scalar_one_or_none()
         if user:
             user.subscription_status = "pro"
+            user.subscription_end_date = datetime.now(timezone.utc) + timedelta(days=days)
             await self._session.commit()
 
     async def update_last_report_date(self, telegram_id: int) -> None:
         """Обновляет дату последнего просмотра недельного отчета."""
-        from datetime import datetime
         result = await self._session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
         user = result.scalar_one_or_none()
         if user:
-            user.last_report_date = datetime.now()
+            user.last_report_date = datetime.now(timezone.utc)
             await self._session.commit()
 
     async def save_weekly_report_cache(self, telegram_id: int, report_text: str) -> None:

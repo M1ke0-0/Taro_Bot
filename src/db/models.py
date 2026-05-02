@@ -35,6 +35,16 @@ class User(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
+    @property
+    def is_pro_active(self) -> bool:
+        """True если PRO-подписка активна и не истекла."""
+        if self.subscription_status != "pro":
+            return False
+        if self.subscription_end_date is None:
+            # Старые записи без даты — считаем активными (backward compatibility)
+            return True
+        return datetime.now(timezone.utc) < self.subscription_end_date
+
 
 class TarotCard(Base):
     """

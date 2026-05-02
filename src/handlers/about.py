@@ -66,6 +66,6 @@ async def show_about_method(message: Message) -> None:
 async def back_to_main_menu(message: Message, session_maker: async_sessionmaker) -> None:
     async with session_maker() as session:
         user = await UserDAO(session).get_by_telegram_id(message.from_user.id)
-        is_pro = user and user.subscription_status == "pro"
+        is_pro = user.is_pro_active if user else False
 
     await message.answer("Выберите действие:", reply_markup=get_main_menu(is_pro=is_pro))
