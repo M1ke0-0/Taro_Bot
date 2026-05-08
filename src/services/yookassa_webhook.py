@@ -24,7 +24,10 @@ async def yookassa_webhook_handler(request: web.Request) -> web.Response:
 
     try:
         data = await request.json()
-    except Exception:
+        logger.info("YooKassa webhook received event: %s", data.get("event"))
+        logger.debug("YooKassa webhook payload: %s", data)
+    except Exception as e:
+        logger.error("Failed to parse YooKassa webhook payload: %s", e)
         return web.Response(status=400)
 
     event_type = data.get("event")

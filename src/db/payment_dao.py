@@ -15,6 +15,7 @@ class PaymentDAO:
         )
         self.session.add(payment)
         await self.session.commit()
+        await self.session.refresh(payment)
         return payment
 
     async def get_all_payments(self):

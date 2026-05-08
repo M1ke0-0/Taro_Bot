@@ -11,7 +11,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from arq import create_pool
+from arq import create_pool, RedisSettings
 
 from src.config import settings
 from src.db.base import create_session_maker
@@ -73,7 +73,7 @@ async def main() -> None:
     worker_process = None  # subprocess ARQ-воркера (только для локальной разработки)
     if redis_url:
         try:
-            from arq.connections import RedisSettings
+            # RedisSettings теперь импортируется в начале файла
             redis_module.arq_pool = await create_pool(RedisSettings.from_dsn(redis_url))
             logging.getLogger(__name__).info("ARQ pool initialized")
 
@@ -105,18 +105,15 @@ async def main() -> None:
     )
     scheduler.start()
 
-    # Запускаем aiohttp-сервер для webhook ЮKassa
-    if settings.YOOKASSA_SHOP_ID and settings.YOOKASSA_SECRET_KEY:
+    # Создаем единое веб-приложение для всех webhook'ов
+    app = web.Application()
+
+    # Настраиваем webhook для ЮKassa
+    yookassa_enabled = bool(settings.YOOKASSA_SHOP_ID and settings.YOOKASSA_SECRET_KEY)
+    if yookassa_enabled:
         from src.services.yookassa_webhook import setup_yookassa_webhook
-        yk_app = web.Application()
-        setup_yookassa_webhook(yk_app, bot, session_maker)
-        yk_runner = web.AppRunner(yk_app)
-        await yk_runner.setup()
-        yk_site = web.TCPSite(yk_runner, host="0.0.0.0", port=settings.YOOKASSA_WEBHOOK_PORT)
-        await yk_site.start()
-        logging.getLogger(__name__).info(
-            "YooKassa webhook listening on port %s", settings.YOOKASSA_WEBHOOK_PORT
-        )
+        setup_yookassa_webhook(app, bot, session_maker)
+        logging.getLogger(__name__).info("YooKassa webhook handler registered at /yookassa/webhook")
     else:
         logging.getLogger(__name__).warning(
             "YooKassa is NOT configured (YOOKASSA_SHOP_ID / YOOKASSA_SECRET_KEY missing). "
@@ -125,27 +122,33 @@ async def main() -> None:
 
     webhook_url = os.getenv("WEBHOOK_URL")
 
+    # Настраиваем webhook для Telegram, если WEBHOOK_URL задан
     if webhook_url:
         async def on_startup(bot: Bot):
             await bot.set_webhook(f"{webhook_url}/webhook")
         dp.startup.register(on_startup)
 
-        app = web.Application()
         webhook_requests_handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
         webhook_requests_handler.register(app, path="/webhook")
         setup_application(app, dp, bot=bot)
+        logging.getLogger(__name__).info(f"Telegram webhook handler registered at /webhook")
 
-        logging.info(f"Starting webhook server on port {os.getenv('WEBHOOK_PORT', 8080)}")
+    # Если включен Telegram Webhook ИЛИ ЮKassa — нам нужен веб-сервер
+    if webhook_url or yookassa_enabled:
+        port = int(os.getenv("WEBHOOK_PORT", 8080))
+        host = os.getenv("WEBHOOK_HOST", "0.0.0.0")
         
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, host=os.getenv("WEBHOOK_HOST", "0.0.0.0"), port=int(os.getenv("WEBHOOK_PORT", 8080)))
+        site = web.TCPSite(runner, host=host, port=port)
         await site.start()
-        
-        # Keep the process running
+        logging.getLogger(__name__).info(f"Unified web server started on {host}:{port}")
+
+    if webhook_url:
+        # Держим процесс запущенным
         await asyncio.Event().wait()
     else:
-        logging.info("Starting polling mode (WEBHOOK_URL not set)")
+        logging.getLogger(__name__).info("Starting polling mode (WEBHOOK_URL not set)")
         retry_delay = 15  # seconds
         max_delay = 300   # 5 minutes
         attempt = 0

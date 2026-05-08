@@ -72,8 +72,12 @@ class UserDAO:
         )
         user = result.scalar_one_or_none()
         if user:
+            now_utc = datetime.now(timezone.utc)
             user.subscription_status = "pro"
-            user.subscription_end_date = datetime.now(timezone.utc) + timedelta(days=days)
+            if user.subscription_end_date and user.subscription_end_date > now_utc:
+                user.subscription_end_date = user.subscription_end_date + timedelta(days=days)
+            else:
+                user.subscription_end_date = now_utc + timedelta(days=days)
             await self._session.commit()
 
     async def update_last_report_date(self, telegram_id: int) -> None:
