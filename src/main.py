@@ -11,7 +11,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from arq import create_pool, RedisSettings
+from arq import create_pool
+from arq.connections import RedisSettings
 
 from src.config import settings
 from src.db.base import create_session_maker

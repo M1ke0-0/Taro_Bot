@@ -1,6 +1,6 @@
 import logging
 import os
-from arq import RedisSettings
+from arq.connections import RedisSettings
 from aiogram import Bot
 from aiogram.client.session.aiohttp import AiohttpSession
 
