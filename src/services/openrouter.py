@@ -229,7 +229,7 @@ async def get_spread_interpretation(
                     OPENROUTER_URL,
                     json=payload,
                     headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=45),
+                    timeout=aiohttp.ClientTimeout(total=settings.AI_TIMEOUT),
                 ) as response:
                     if response.status != 200:
                         error_text = await response.text()
@@ -301,7 +301,7 @@ async def get_weekly_report_interpretation(stats: dict) -> str:
             OPENROUTER_URL,
             json=payload,
             headers=headers,
-            timeout=aiohttp.ClientTimeout(total=60),
+            timeout=aiohttp.ClientTimeout(total=settings.AI_TIMEOUT * 2),
         ) as response:
             if response.status != 200:
                 error_text = await response.text()

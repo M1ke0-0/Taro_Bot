@@ -23,6 +23,7 @@ class Settings:
 
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
     OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
+    AI_TIMEOUT: int = int(os.getenv("AI_TIMEOUT", "90"))
 
     APP_ENV: str = os.getenv("APP_ENV", "development")
 

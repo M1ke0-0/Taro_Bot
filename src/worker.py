@@ -116,4 +116,5 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     max_jobs = 50
+    job_timeout = 600
 
